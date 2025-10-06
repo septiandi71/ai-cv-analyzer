@@ -334,6 +334,23 @@ export class RagieService {
   }
 
   /**
+   * Get document status by ID
+   */
+  async getDocumentStatus(documentId: string): Promise<any> {
+    try {
+      if (!this.isAvailable()) {
+        throw new Error('Ragie client not initialized');
+      }
+
+      const response = await this.client.documents.get({ documentId });
+      return response;
+    } catch (error) {
+      this.logger.error(`Error getting document status: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
    * List all indexed documents
    */
   async listDocuments(): Promise<any[]> {
@@ -343,7 +360,10 @@ export class RagieService {
       }
 
       const response = await this.client.documents.list();
-      return response as any;
+      
+      // Response is paginated, extract the documents array
+      const documents = (response as any).documents || [];
+      return documents;
     } catch (error) {
       this.logger.error(`Error listing documents: ${error.message}`);
       return [];
