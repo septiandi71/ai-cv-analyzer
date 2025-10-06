@@ -6,124 +6,116 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
-// Enum for document types
-enum DocumentType {
+// ============================================================================
+// ENUMS
+// ============================================================================
+
+// Status untuk evaluation job
+enum EvaluationStatus {
+  QUEUED      // Job baru masuk queue
+  PROCESSING  // Sedang diproses oleh worker
+  COMPLETED   // Selesai dengan sukses
+  FAILED      // Gagal setelah retry
+}
+
+// Tipe dokumen yang diupload
+enum FileType {
   CV
   PROJECT_REPORT
 }
 
-// Enum for evaluation job status
-enum JobStatus {
-  QUEUED
-  PROCESSING
-  COMPLETED
-  FAILED
-}
+// ============================================================================
+// MODELS
+// ============================================================================
 
-// Model for uploaded documents
-model Document {
-  id           String       @id @default(uuid())
-  filename     String
-  originalName String
-  mimeType     String
-  size         Int
-  type         DocumentType
-  filePath     String
-  uploadedAt   DateTime     @default(now())
+// Model untuk file yang diupload (CV atau Project Report)
+model UploadedFile {
+  id               String   @id @default(uuid())
+  type             FileType // CV atau PROJECT_REPORT
+  
+  // File metadata
+  originalFilename String
+  storedFilename   String   @unique // Filename di storage
+  filePath         String   // Full path ke file
+  mimeType         String   // application/pdf
+  fileSize         Int      // Size in bytes
+  
+  // Extracted content (PENTING untuk RAG!)
+  extractedText    String   @db.Text // Text dari PDF
+  pageCount        Int      @default(0)
   
   // Relations
-  cvEvaluations         EvaluationJob[] @relation("CVDocument")
-  projectEvaluations    EvaluationJob[] @relation("ProjectDocument")
-  
-  @@map("documents")
-}
-
-// Model for evaluation jobs
-model EvaluationJob {
-  id          String    @id @default(uuid())
-  jobTitle    String
-  status      JobStatus @default(QUEUED)
-  
-  // Foreign keys
-  cvId        String
-  projectId   String
-  
-  // Relations
-  cv          Document  @relation("CVDocument", fields: [cvId], references: [id])
-  project     Document  @relation("ProjectDocument", fields: [projectId], references: [id])
-  result      EvaluationResult?
+  jobsAsCv              EvaluationJob[] @relation("CvFiles")
+  jobsAsProjectReport   EvaluationJob[] @relation("ProjectReportFiles")
   
   // Timestamps
-  createdAt   DateTime  @default(now())
-  startedAt   DateTime?
-  completedAt DateTime?
+  createdAt        DateTime @default(now())
   
-  // Error tracking
-  error       String?
-  attempts    Int       @default(0)
-  
-  @@map("evaluation_jobs")
+  @@map("uploaded_files")
+  @@index([type])
+  @@index([createdAt])
 }
 
-// Model for evaluation results
-model EvaluationResult {
-  id              String   @id @default(uuid())
-  jobId           String   @unique
-  job             EvaluationJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+// Model utama untuk evaluation job (MERGED dengan result)
+model EvaluationJob {
+  id        String            @id @default(uuid())
+  status    EvaluationStatus  @default(QUEUED)
+  jobTitle  String            // Job title dari input user
   
-  // CV Evaluation
-  cvMatchRate     Float
-  cvFeedback      String   @db.Text
+  // Foreign keys
+  cvFileId            String
+  projectReportFileId String
   
-  // Technical Skills Match
-  technicalSkillsScore Float
-  technicalSkillsFeedback String @db.Text
+  // Relations
+  cvFile              UploadedFile @relation("CvFiles", fields: [cvFileId], references: [id], onDelete: Cascade)
+  projectReportFile   UploadedFile @relation("ProjectReportFiles", fields: [projectReportFileId], references: [id], onDelete: Cascade)
   
-  // Experience Level
-  experienceLevelScore Float
-  experienceLevelFeedback String @db.Text
+  // ========================================================================
+  // EVALUATION RESULTS (nullable, diisi saat COMPLETED)
+  // ========================================================================
   
-  // Relevant Achievements
-  achievementsScore Float
-  achievementsFeedback String @db.Text
+  // --- CV Evaluation ---
+  cvMatchRate     Float?  // 0.0 - 1.0
+  cvFeedback      String? @db.Text
+  cvScoresJson    Json?   // Detailed breakdown: technical, experience, achievements, cultural
   
-  // Cultural Fit
-  culturalFitScore Float
-  culturalFitFeedback String @db.Text
+  // --- Project Evaluation ---
+  projectScore    Float?  // 1.0 - 5.0
+  projectFeedback String? @db.Text
+  projectScoresJson Json? // Detailed breakdown: correctness, quality, resilience, docs, creativity
   
-  // Project Evaluation
-  projectScore    Float
-  projectFeedback String   @db.Text
+  // --- Overall Summary ---
+  overallSummary  String? @db.Text
   
-  // Correctness
-  correctnessScore Float
-  correctnessFeedback String @db.Text
+  // ========================================================================
+  // METADATA & TRACKING
+  // ========================================================================
   
-  // Code Quality
-  codeQualityScore Float
-  codeQualityFeedback String @db.Text
+  // LLM metadata
+  llmProvider     String? // gemini/openrouter
+  llmModel        String? // gemini-1.5-flash
+  tokensUsed      Int?    // Total tokens consumed
   
-  // Resilience
-  resilienceScore Float
-  resilienceFeedback String @db.Text
+  // Performance tracking
+  processingTimeMs Int?   // Processing time in milliseconds
   
-  // Documentation
-  documentationScore Float
-  documentationFeedback String @db.Text
+  // Error tracking
+  error           String? @db.Text // Error message if FAILED
+  attempts        Int     @default(0) // Retry attempts
   
-  // Creativity
-  creativityScore Float
-  creativityFeedback String @db.Text
+  // Timestamps
+  createdAt       DateTime  @default(now())
+  startedAt       DateTime? // When processing started
+  completedAt     DateTime? // When completed/failed
   
-  // Overall
-  overallSummary  String   @db.Text
-  
-  // Metadata
-  createdAt       DateTime @default(now())
-  
-  @@map("evaluation_results")
+  @@map("evaluation_jobs")
+  @@index([status])
+  @@index([createdAt])
+  @@index([cvFileId])
+  @@index([projectReportFileId])
 }
