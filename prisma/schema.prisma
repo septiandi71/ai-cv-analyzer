@@ -1,0 +1,129 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Enum for document types
+enum DocumentType {
+  CV
+  PROJECT_REPORT
+}
+
+// Enum for evaluation job status
+enum JobStatus {
+  QUEUED
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+// Model for uploaded documents
+model Document {
+  id           String       @id @default(uuid())
+  filename     String
+  originalName String
+  mimeType     String
+  size         Int
+  type         DocumentType
+  filePath     String
+  uploadedAt   DateTime     @default(now())
+  
+  // Relations
+  cvEvaluations         EvaluationJob[] @relation("CVDocument")
+  projectEvaluations    EvaluationJob[] @relation("ProjectDocument")
+  
+  @@map("documents")
+}
+
+// Model for evaluation jobs
+model EvaluationJob {
+  id          String    @id @default(uuid())
+  jobTitle    String
+  status      JobStatus @default(QUEUED)
+  
+  // Foreign keys
+  cvId        String
+  projectId   String
+  
+  // Relations
+  cv          Document  @relation("CVDocument", fields: [cvId], references: [id])
+  project     Document  @relation("ProjectDocument", fields: [projectId], references: [id])
+  result      EvaluationResult?
+  
+  // Timestamps
+  createdAt   DateTime  @default(now())
+  startedAt   DateTime?
+  completedAt DateTime?
+  
+  // Error tracking
+  error       String?
+  attempts    Int       @default(0)
+  
+  @@map("evaluation_jobs")
+}
+
+// Model for evaluation results
+model EvaluationResult {
+  id              String   @id @default(uuid())
+  jobId           String   @unique
+  job             EvaluationJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  
+  // CV Evaluation
+  cvMatchRate     Float
+  cvFeedback      String   @db.Text
+  
+  // Technical Skills Match
+  technicalSkillsScore Float
+  technicalSkillsFeedback String @db.Text
+  
+  // Experience Level
+  experienceLevelScore Float
+  experienceLevelFeedback String @db.Text
+  
+  // Relevant Achievements
+  achievementsScore Float
+  achievementsFeedback String @db.Text
+  
+  // Cultural Fit
+  culturalFitScore Float
+  culturalFitFeedback String @db.Text
+  
+  // Project Evaluation
+  projectScore    Float
+  projectFeedback String   @db.Text
+  
+  // Correctness
+  correctnessScore Float
+  correctnessFeedback String @db.Text
+  
+  // Code Quality
+  codeQualityScore Float
+  codeQualityFeedback String @db.Text
+  
+  // Resilience
+  resilienceScore Float
+  resilienceFeedback String @db.Text
+  
+  // Documentation
+  documentationScore Float
+  documentationFeedback String @db.Text
+  
+  // Creativity
+  creativityScore Float
+  creativityFeedback String @db.Text
+  
+  // Overall
+  overallSummary  String   @db.Text
+  
+  // Metadata
+  createdAt       DateTime @default(now())
+  
+  @@map("evaluation_results")
+}
