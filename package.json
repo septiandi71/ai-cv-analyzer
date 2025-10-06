@@ -20,7 +20,8 @@
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "index-documents": "ts-node -r tsconfig-paths/register scripts/index-documents.ts",
     "check-ragie-status": "ts-node -r tsconfig-paths/register scripts/check-ragie-status.ts",
-    "check-docs-status": "ts-node -r tsconfig-paths/register scripts/check-docs-status.ts"
+    "check-docs-status": "ts-node -r tsconfig-paths/register scripts/check-docs-status.ts",
+    "debug-rag": "ts-node -r tsconfig-paths/register scripts/debug-rag.ts"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",

@@ -5,6 +5,7 @@ import { EvaluationService } from './evaluation.service';
 import { PrismaService } from '../../common/prisma.service';
 import { UploadService } from '../upload/upload.service';
 import { LLMService } from '../llm/llm.service';
+import { RagieService } from '../ragie/ragie.service';
 
 interface EvaluationJobData {
   jobId: string;
@@ -22,6 +23,7 @@ export class EvaluationProcessor {
     private readonly prisma: PrismaService,
     private readonly uploadService: UploadService,
     private readonly llmService: LLMService,
+    private readonly ragieService: RagieService,
   ) {}
 
   @Process('evaluate-candidate')
@@ -44,14 +46,34 @@ export class EvaluationProcessor {
 
       this.logger.log(`Files loaded for job ${jobId}`);
 
-      // TODO: Phase 4 - RAG Integration (retrieve relevant context)
-      // For now, we'll use the extracted text directly
+      // Phase 4: RAG Integration - Retrieve ground truth context
+      this.logger.log(`Retrieving RAG context for job ${jobId}...`);
+      const [jobRequirements, cvCriteria, projectRequirements, projectCriteria] = await Promise.all([
+        this.ragieService.retrieveJobRequirements(jobTitle).catch(err => {
+          this.logger.warn(`Failed to retrieve job requirements: ${err.message}`);
+          return null;
+        }),
+        this.ragieService.retrieveCVScoringCriteria().catch(err => {
+          this.logger.warn(`Failed to retrieve CV criteria: ${err.message}`);
+          return null;
+        }),
+        this.ragieService.retrieveProjectRequirements().catch(err => {
+          this.logger.warn(`Failed to retrieve project requirements: ${err.message}`);
+          return null;
+        }),
+        this.ragieService.retrieveProjectScoringCriteria().catch(err => {
+          this.logger.warn(`Failed to retrieve project criteria: ${err.message}`);
+          return null;
+        }),
+      ]);
+
+      this.logger.log(`RAG context retrieved for job ${jobId}`);
 
       // OPTIMIZATION: Run CV and Project evaluation in PARALLEL (reduces ~50% time)
-      this.logger.log(`Starting parallel evaluation for job ${jobId}...`);
+      this.logger.log(`Starting parallel evaluation with RAG context for job ${jobId}...`);
       const [cvEvaluation, projectEvaluation] = await Promise.all([
-        this.evaluateCV(cvText, jobTitle),
-        this.evaluateProject(projectText),
+        this.evaluateCV(cvText, jobTitle, jobRequirements, cvCriteria),
+        this.evaluateProject(projectText, projectRequirements, projectCriteria),
       ]);
 
       this.logger.log(`Parallel evaluation completed for job ${jobId}`);
@@ -99,11 +121,13 @@ export class EvaluationProcessor {
   }
 
   /**
-   * Evaluate CV against job description
+   * Evaluate CV against job description with RAG context
    */
   private async evaluateCV(
     cvText: string,
     jobTitle: string,
+    jobRequirements: any,
+    cvCriteria: any,
   ): Promise<{
     matchRate: number;
     feedback: string;
@@ -112,15 +136,29 @@ export class EvaluationProcessor {
     model: string;
     tokensUsed: number;
   }> {
-    const systemPrompt = `You are an expert technical recruiter evaluating a candidate's CV for a ${jobTitle} position.
+    // Build system prompt with RAG context
+    let systemPrompt = `You are an expert technical recruiter evaluating a candidate's CV for a ${jobTitle} position.`;
 
-Evaluate the CV based on these criteria (score 1-5 for each):
+    // Inject job requirements from ground truth if available
+    if (jobRequirements?.context) {
+      systemPrompt += `\n\n=== JOB REQUIREMENTS (Ground Truth) ===\n${jobRequirements.context.substring(0, 2000)}\n`;
+      this.logger.log(`Using RAG job requirements (${jobRequirements.chunks?.length || 0} chunks, score: ${jobRequirements.relevanceScore?.toFixed(2) || 'N/A'})`);
+    }
+
+    // Inject CV scoring criteria from rubric if available
+    if (cvCriteria?.context) {
+      systemPrompt += `\n\n=== EVALUATION CRITERIA (Ground Truth) ===\n${cvCriteria.context.substring(0, 2000)}\n`;
+      this.logger.log(`Using RAG CV criteria (${cvCriteria.chunks?.length || 0} chunks, score: ${cvCriteria.relevanceScore?.toFixed(2) || 'N/A'})`);
+    } else {
+      // Fallback criteria if RAG unavailable
+      systemPrompt += `\n\nEvaluate the CV based on these criteria (score 1-5 for each):
 1. Technical Skills Match (weight: 40%) - Backend, databases, APIs, cloud, AI/LLM exposure
 2. Experience Level (weight: 25%) - Years of experience and project complexity
 3. Relevant Achievements (weight: 20%) - Impact, scale, adoption
-4. Cultural Fit (weight: 15%) - Communication, learning attitude, teamwork
+4. Cultural Fit (weight: 15%) - Communication, learning attitude, teamwork`;
+    }
 
-IMPORTANT: 
+    systemPrompt += `\n\nIMPORTANT: 
 - Respond with ONLY valid JSON, no markdown formatting, no explanations, no code blocks
 - Keep each feedback to MAX 100 characters
 - Keep overall_feedback to MAX 200 characters
@@ -163,9 +201,13 @@ Required JSON format:
   }
 
   /**
-   * Evaluate project report
+   * Evaluate project report with RAG context
    */
-  private async evaluateProject(projectText: string): Promise<{
+  private async evaluateProject(
+    projectText: string,
+    projectRequirements: any,
+    projectCriteria: any,
+  ): Promise<{
     score: number;
     feedback: string;
     scores: any;
@@ -173,16 +215,30 @@ Required JSON format:
     model: string;
     tokensUsed: number;
   }> {
-    const systemPrompt = `You are an expert technical evaluator assessing a project report.
+    // Build system prompt with RAG context
+    let systemPrompt = `You are an expert technical evaluator assessing a project report.`;
 
-Evaluate the project based on these criteria (score 1-5 for each):
+    // Inject project requirements from case study brief if available
+    if (projectRequirements?.context) {
+      systemPrompt += `\n\n=== PROJECT REQUIREMENTS (Ground Truth) ===\n${projectRequirements.context.substring(0, 2000)}\n`;
+      this.logger.log(`Using RAG project requirements (${projectRequirements.chunks?.length || 0} chunks, score: ${projectRequirements.relevanceScore?.toFixed(2) || 'N/A'})`);
+    }
+
+    // Inject project scoring criteria from rubric if available
+    if (projectCriteria?.context) {
+      systemPrompt += `\n\n=== EVALUATION CRITERIA (Ground Truth) ===\n${projectCriteria.context.substring(0, 2000)}\n`;
+      this.logger.log(`Using RAG project criteria (${projectCriteria.chunks?.length || 0} chunks, score: ${projectCriteria.relevanceScore?.toFixed(2) || 'N/A'})`);
+    } else {
+      // Fallback criteria if RAG unavailable
+      systemPrompt += `\n\nEvaluate the project based on these criteria (score 1-5 for each):
 1. Correctness (weight: 30%) - Implements prompt design, LLM chaining, RAG
 2. Code Quality (weight: 25%) - Clean, modular, testable
 3. Resilience (weight: 20%) - Handles failures, retries, errors
 4. Documentation (weight: 15%) - Clear README, explanations
-5. Creativity (weight: 10%) - Extra features beyond requirements
+5. Creativity (weight: 10%) - Extra features beyond requirements`;
+    }
 
-IMPORTANT:
+    systemPrompt += `\n\nIMPORTANT:
 - Respond with ONLY valid JSON, no markdown formatting, no explanations, no code blocks
 - Keep each feedback to MAX 100 characters
 - Keep overall_feedback to MAX 200 characters

@@ -18,7 +18,7 @@ export class RagieService {
   private readonly logger = new Logger(RagieService.name);
   private client: Ragie;
   private readonly topK: number = 5;
-  private readonly minScore: number = 0.7;
+  private readonly minScore: number = 0.1; // Ragie uses semantic similarity (0.1-0.2 is normal)
 
   constructor(private configService: ConfigService) {
     const apiKey = this.configService.get('ragie.apiKey');
