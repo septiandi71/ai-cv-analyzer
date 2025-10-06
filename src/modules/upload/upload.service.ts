@@ -4,7 +4,10 @@ import { PrismaService } from '../../common/prisma.service';
 import { UploadResponseDto } from './dto/upload-response.dto';
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import pdfParse from 'pdf-parse';
+import { readFileSync } from 'fs';
+
+// Import pdf2json for reliable PDF text extraction
+const PDFParser = require('pdf2json');
 
 @Injectable()
 export class UploadService {
@@ -92,24 +95,85 @@ export class UploadService {
   }
 
   /**
-   * Parse PDF file and extract text content
+   * Parse PDF file and extract text content using pdf2json
    */
   private async parsePdfFile(file: Express.Multer.File): Promise<{
     text: string;
     pageCount: number;
   }> {
-    try {
-      const dataBuffer = await fs.readFile(file.path);
-      const data = await pdfParse(dataBuffer);
+    return new Promise((resolve, reject) => {
+      try {
+        const pdfParser = new PDFParser();
+        
+        // Set up event handlers
+        pdfParser.on('pdfParser_dataReady', (pdfData: any) => {
+          try {
+            // Extract text from all pages
+            let text = '';
+            let pageCount = 0;
 
-      return {
-        text: data.text,
-        pageCount: (data as any).numpages || 1,
-      };
-    } catch (error) {
-      this.logger.error(`Error parsing PDF file ${file.filename}: ${error.message}`);
-      throw new Error(`Failed to parse PDF: ${error.message}`);
-    }
+            if (pdfData && pdfData.Pages) {
+              pageCount = pdfData.Pages.length;
+              
+              // Extract text from each page
+              for (const page of pdfData.Pages) {
+                if (page.Texts) {
+                  for (const textItem of page.Texts) {
+                    for (const textRun of textItem.R) {
+                      if (textRun.T) {
+                        // Decode URI encoded text
+                        text += decodeURIComponent(textRun.T) + ' ';
+                      }
+                    }
+                  }
+                  text += '\n'; // Add newline after each page
+                }
+              }
+            }
+
+            // Sanitize text: Remove null bytes and other invalid characters for PostgreSQL
+            const sanitizedText = this.sanitizeText(text.trim());
+
+            this.logger.log(`Successfully parsed PDF ${file.filename}: ${pageCount} pages, ${sanitizedText.length} characters`);
+            
+            resolve({
+              text: sanitizedText,
+              pageCount: pageCount || 1,
+            });
+          } catch (error) {
+            this.logger.error(`Error processing PDF data for ${file.filename}: ${error.message}`);
+            reject(new Error(`Failed to process PDF data: ${error.message}`));
+          }
+        });
+
+        pdfParser.on('pdfParser_dataError', (error: any) => {
+          this.logger.error(`PDF parsing error for ${file.filename}: ${error.parserError}`);
+          reject(new Error(`PDF parsing failed: ${error.parserError}`));
+        });
+
+        // Load and parse the PDF file
+        const dataBuffer = readFileSync(file.path);
+        pdfParser.parseBuffer(dataBuffer);
+        
+      } catch (error) {
+        this.logger.error(`Error parsing PDF file ${file.filename}: ${error.message}`);
+        reject(new Error(`Failed to parse PDF: ${error.message}`));
+      }
+    });
+  }
+
+  /**
+   * Sanitize text to remove invalid characters for PostgreSQL UTF8
+   */
+  private sanitizeText(text: string): string {
+    return text
+      // Remove null bytes (0x00) - PostgreSQL UTF8 doesn't support them
+      .replace(/\0/g, '')
+      // Remove other control characters except newline, tab, and carriage return
+      .replace(/[\x01-\x08\x0B-\x0C\x0E-\x1F\x7F]/g, '')
+      // Normalize whitespace
+      .replace(/\s+/g, ' ')
+      .trim();
   }
 
   /**

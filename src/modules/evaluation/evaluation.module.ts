@@ -7,6 +7,7 @@ import { EvaluationProcessor } from './evaluation.processor';
 import { PrismaService } from '../../common/prisma.service';
 import { UploadService } from '../upload/upload.service';
 import { LLMService } from '../llm/llm.service';
+import { RagieService } from '../ragie/ragie.service';
 
 @Module({
   imports: [
@@ -39,6 +40,7 @@ import { LLMService } from '../llm/llm.service';
     PrismaService,
     UploadService,
     LLMService,
+    RagieService,
   ],
   exports: [EvaluationService],
 })
