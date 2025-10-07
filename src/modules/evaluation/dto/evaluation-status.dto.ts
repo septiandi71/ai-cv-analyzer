@@ -18,7 +18,7 @@ export class EvaluationStatusDto {
     description: 'Job title',
     example: 'Backend Engineer',
   })
-  jobTitle?: string;
+  job_title?: string;
 
   @ApiProperty({
     description: 'Error message if failed',
@@ -37,19 +37,19 @@ export class EvaluationStatusDto {
     description: 'Job creation timestamp',
     example: '2025-10-06T10:30:00Z',
   })
-  createdAt?: Date;
+  created_at?: Date;
 
   @ApiProperty({
     description: 'Processing start timestamp',
     example: '2025-10-06T10:30:05Z',
     required: false,
   })
-  startedAt?: Date;
+  started_at?: Date;
 
   @ApiProperty({
     description: 'Job completion timestamp',
     example: '2025-10-06T10:32:15Z',
     required: false,
   })
-  completedAt?: Date;
+  completed_at?: Date;
 }

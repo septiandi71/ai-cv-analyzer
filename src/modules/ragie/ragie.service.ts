@@ -13,6 +13,13 @@ export interface RagRetrievalResult {
   retrievalTimeMs: number;
 }
 
+interface RetrievalConfig {
+  query: string;
+  filterType: 'job_description' | 'case_study_brief' | 'scoring_rubric';
+  logMessage: string;
+  warningMessage: string;
+}
+
 @Injectable()
 export class RagieService {
   private readonly logger = new Logger(RagieService.name);
@@ -40,9 +47,10 @@ export class RagieService {
   }
 
   /**
-   * Retrieve job requirements context for CV evaluation
+   * Generic retrieval method to eliminate code duplication
+   * @private
    */
-  async retrieveJobRequirements(jobTitle: string): Promise<RagRetrievalResult> {
+  private async retrieve(config: RetrievalConfig): Promise<RagRetrievalResult> {
     const startTime = Date.now();
 
     try {
@@ -51,15 +59,13 @@ export class RagieService {
         return this.emptyResult();
       }
 
-      this.logger.log(`Retrieving job requirements for: ${jobTitle}`);
+      this.logger.log(config.logMessage);
 
-      const query = `${jobTitle} job description technical requirements responsibilities qualifications`;
-      
       const response = await this.client.retrievals.retrieve({
-        query,
+        query: config.query,
         topK: this.topK,
         filter: {
-          type: 'job_description',
+          type: config.filterType,
         },
       });
 
@@ -67,7 +73,7 @@ export class RagieService {
       const relevantChunks = chunks.filter(chunk => chunk.score >= this.minScore);
 
       if (relevantChunks.length === 0) {
-        this.logger.warn(`No relevant job requirements found for: ${jobTitle}`);
+        this.logger.warn(config.warningMessage);
         return this.emptyResult();
       }
 
@@ -76,8 +82,8 @@ export class RagieService {
         .join('\n\n');
 
       const avgScore = relevantChunks.reduce((sum, c) => sum + c.score, 0) / relevantChunks.length;
-
       const retrievalTimeMs = Date.now() - startTime;
+
       this.logger.log(`Retrieved ${relevantChunks.length} chunks in ${retrievalTimeMs}ms (avg score: ${avgScore.toFixed(2)})`);
 
       return {
@@ -91,177 +97,57 @@ export class RagieService {
         retrievalTimeMs,
       };
     } catch (error) {
-      this.logger.error(`Error retrieving job requirements: ${error.message}`);
+      this.logger.error(`Error during retrieval: ${error.message}`);
       return this.emptyResult();
     }
+  }
+
+  /**
+   * Retrieve job requirements context for CV evaluation
+   */
+  async retrieveJobRequirements(jobTitle: string): Promise<RagRetrievalResult> {
+    return this.retrieve({
+      query: `${jobTitle} job description technical requirements responsibilities qualifications`,
+      filterType: 'job_description',
+      logMessage: `Retrieving job requirements for: ${jobTitle}`,
+      warningMessage: `No relevant job requirements found for: ${jobTitle}`,
+    });
   }
 
   /**
    * Retrieve CV scoring criteria from rubric
    */
   async retrieveCVScoringCriteria(): Promise<RagRetrievalResult> {
-    const startTime = Date.now();
-
-    try {
-      if (!this.isAvailable()) {
-        return this.emptyResult();
-      }
-
-      this.logger.log('Retrieving CV scoring criteria from rubric');
-
-      const query = 'CV evaluation criteria technical skills experience achievements cultural fit scoring rubric weights';
-      
-      const response = await this.client.retrievals.retrieve({
-        query,
-        topK: this.topK,
-        filter: {
-          type: 'scoring_rubric',
-        },
-      });
-
-      const chunks = response.scoredChunks || [];
-      const relevantChunks = chunks.filter(chunk => chunk.score >= this.minScore);
-
-      if (relevantChunks.length === 0) {
-        this.logger.warn('No CV scoring criteria found in rubric');
-        return this.emptyResult();
-      }
-
-      const context = relevantChunks
-        .map(chunk => chunk.text)
-        .join('\n\n');
-
-      const avgScore = relevantChunks.reduce((sum, c) => sum + c.score, 0) / relevantChunks.length;
-      const retrievalTimeMs = Date.now() - startTime;
-
-      this.logger.log(`Retrieved CV criteria: ${relevantChunks.length} chunks in ${retrievalTimeMs}ms`);
-
-      return {
-        context,
-        chunks: relevantChunks.map(c => ({
-          text: c.text,
-          score: c.score,
-          metadata: c.metadata,
-        })),
-        relevanceScore: avgScore,
-        retrievalTimeMs,
-      };
-    } catch (error) {
-      this.logger.error(`Error retrieving CV criteria: ${error.message}`);
-      return this.emptyResult();
-    }
+    return this.retrieve({
+      query: 'CV evaluation criteria technical skills experience achievements cultural fit scoring rubric weights',
+      filterType: 'scoring_rubric',
+      logMessage: 'Retrieving CV scoring criteria from rubric',
+      warningMessage: 'No CV scoring criteria found in rubric',
+    });
   }
 
   /**
    * Retrieve project requirements from case study brief
    */
   async retrieveProjectRequirements(): Promise<RagRetrievalResult> {
-    const startTime = Date.now();
-
-    try {
-      if (!this.isAvailable()) {
-        return this.emptyResult();
-      }
-
-      this.logger.log('Retrieving project requirements from case study brief');
-
-      const query = 'AI CV Analyzer case study project requirements technical specifications deliverables features backend LLM RAG';
-      
-      const response = await this.client.retrievals.retrieve({
-        query,
-        topK: this.topK,
-        filter: {
-          type: 'case_study_brief',
-        },
-      });
-
-      const chunks = response.scoredChunks || [];
-      const relevantChunks = chunks.filter(chunk => chunk.score >= this.minScore);
-
-      if (relevantChunks.length === 0) {
-        this.logger.warn('No project requirements found in case study');
-        return this.emptyResult();
-      }
-
-      const context = relevantChunks
-        .map(chunk => chunk.text)
-        .join('\n\n');
-
-      const avgScore = relevantChunks.reduce((sum, c) => sum + c.score, 0) / relevantChunks.length;
-      const retrievalTimeMs = Date.now() - startTime;
-
-      this.logger.log(`Retrieved project requirements: ${relevantChunks.length} chunks in ${retrievalTimeMs}ms`);
-
-      return {
-        context,
-        chunks: relevantChunks.map(c => ({
-          text: c.text,
-          score: c.score,
-          metadata: c.metadata,
-        })),
-        relevanceScore: avgScore,
-        retrievalTimeMs,
-      };
-    } catch (error) {
-      this.logger.error(`Error retrieving project requirements: ${error.message}`);
-      return this.emptyResult();
-    }
+    return this.retrieve({
+      query: 'AI CV Analyzer case study project requirements technical specifications deliverables features backend LLM RAG',
+      filterType: 'case_study_brief',
+      logMessage: 'Retrieving project requirements from case study brief',
+      warningMessage: 'No project requirements found in case study',
+    });
   }
 
   /**
    * Retrieve project scoring criteria from rubric
    */
   async retrieveProjectScoringCriteria(): Promise<RagRetrievalResult> {
-    const startTime = Date.now();
-
-    try {
-      if (!this.isAvailable()) {
-        return this.emptyResult();
-      }
-
-      this.logger.log('Retrieving project scoring criteria from rubric');
-
-      const query = 'Project evaluation criteria correctness code quality resilience documentation creativity scoring rubric weights';
-      
-      const response = await this.client.retrievals.retrieve({
-        query,
-        topK: this.topK,
-        filter: {
-          type: 'scoring_rubric',
-        },
-      });
-
-      const chunks = response.scoredChunks || [];
-      const relevantChunks = chunks.filter(chunk => chunk.score >= this.minScore);
-
-      if (relevantChunks.length === 0) {
-        this.logger.warn('No project scoring criteria found in rubric');
-        return this.emptyResult();
-      }
-
-      const context = relevantChunks
-        .map(chunk => chunk.text)
-        .join('\n\n');
-
-      const avgScore = relevantChunks.reduce((sum, c) => sum + c.score, 0) / relevantChunks.length;
-      const retrievalTimeMs = Date.now() - startTime;
-
-      this.logger.log(`Retrieved project criteria: ${relevantChunks.length} chunks in ${retrievalTimeMs}ms`);
-
-      return {
-        context,
-        chunks: relevantChunks.map(c => ({
-          text: c.text,
-          score: c.score,
-          metadata: c.metadata,
-        })),
-        relevanceScore: avgScore,
-        retrievalTimeMs,
-      };
-    } catch (error) {
-      this.logger.error(`Error retrieving project criteria: ${error.message}`);
-      return this.emptyResult();
-    }
+    return this.retrieve({
+      query: 'Project evaluation criteria correctness code quality resilience documentation creativity scoring rubric weights',
+      filterType: 'scoring_rubric',
+      logMessage: 'Retrieving project scoring criteria from rubric',
+      warningMessage: 'No project scoring criteria found in rubric',
+    });
   }
 
   /**

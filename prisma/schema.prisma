@@ -34,27 +34,28 @@ enum FileType {
 // ============================================================================
 
 // Model untuk file yang diupload (CV atau Project Report)
+// Using snake_case for column names to match API response format (PostgreSQL standard)
 model UploadedFile {
   id               String   @id @default(uuid())
   type             FileType // CV atau PROJECT_REPORT
   
   // File metadata
-  originalFilename String
-  storedFilename   String   @unique // Filename di storage
-  filePath         String   // Full path ke file
-  mimeType         String   // application/pdf
-  fileSize         Int      // Size in bytes
+  originalFilename String   @map("original_filename")
+  storedFilename   String   @unique @map("stored_filename") // Filename di storage
+  filePath         String   @map("file_path")              // Full path ke file
+  mimeType         String   @map("mime_type")              // application/pdf
+  fileSize         Int      @map("file_size")              // Size in bytes
   
   // Extracted content (PENTING untuk RAG!)
-  extractedText    String   @db.Text // Text dari PDF
-  pageCount        Int      @default(0)
+  extractedText    String   @db.Text @map("extracted_text") // Text dari PDF
+  pageCount        Int      @default(0) @map("page_count")
   
   // Relations
   jobsAsCv              EvaluationJob[] @relation("CvFiles")
   jobsAsProjectReport   EvaluationJob[] @relation("ProjectReportFiles")
   
   // Timestamps
-  createdAt        DateTime @default(now())
+  createdAt        DateTime @default(now()) @map("created_at")
   
   @@map("uploaded_files")
   @@index([type])
@@ -62,14 +63,15 @@ model UploadedFile {
 }
 
 // Model utama untuk evaluation job (MERGED dengan result)
+// Using snake_case for column names to match API response format (PostgreSQL standard)
 model EvaluationJob {
   id        String            @id @default(uuid())
   status    EvaluationStatus  @default(QUEUED)
-  jobTitle  String            // Job title dari input user
+  jobTitle  String            @map("job_title") // Job title dari input user
   
   // Foreign keys
-  cvFileId            String
-  projectReportFileId String
+  cvFileId            String @map("cv_file_id")
+  projectReportFileId String @map("project_report_file_id")
   
   // Relations
   cvFile              UploadedFile @relation("CvFiles", fields: [cvFileId], references: [id], onDelete: Cascade)
@@ -80,38 +82,38 @@ model EvaluationJob {
   // ========================================================================
   
   // --- CV Evaluation ---
-  cvMatchRate     Float?  // 0.0 - 1.0
-  cvFeedback      String? @db.Text
-  cvScoresJson    Json?   // Detailed breakdown: technical, experience, achievements, cultural
+  cvMatchRate     Float?  @map("cv_match_rate")      // 0.0 - 1.0
+  cvFeedback      String? @map("cv_feedback") @db.Text
+  cvScoresJson    Json?   @map("cv_scores_json")     // Detailed breakdown: technical, experience, achievements, cultural
   
   // --- Project Evaluation ---
-  projectScore    Float?  // 1.0 - 5.0
-  projectFeedback String? @db.Text
-  projectScoresJson Json? // Detailed breakdown: correctness, quality, resilience, docs, creativity
+  projectScore    Float?  @map("project_score")      // 1.0 - 5.0
+  projectFeedback String? @map("project_feedback") @db.Text
+  projectScoresJson Json? @map("project_scores_json") // Detailed breakdown: correctness, quality, resilience, docs, creativity
   
   // --- Overall Summary ---
-  overallSummary  String? @db.Text
+  overallSummary  String? @map("overall_summary") @db.Text
   
   // ========================================================================
   // METADATA & TRACKING
   // ========================================================================
   
   // LLM metadata
-  llmProvider     String? // gemini/openrouter
-  llmModel        String? // gemini-1.5-flash
-  tokensUsed      Int?    // Total tokens consumed
+  llmProvider     String? @map("llm_provider")       // gemini/openrouter
+  llmModel        String? @map("llm_model")          // gemini-1.5-flash
+  tokensUsed      Int?    @map("tokens_used")        // Total tokens consumed
   
   // Performance tracking
-  processingTimeMs Int?   // Processing time in milliseconds
+  processingTimeMs Int?   @map("processing_time_ms") // Processing time in milliseconds
   
   // Error tracking
-  error           String? @db.Text // Error message if FAILED
-  attempts        Int     @default(0) // Retry attempts
+  error           String? @db.Text                   // Error message if FAILED
+  attempts        Int     @default(0)                // Retry attempts
   
   // Timestamps
-  createdAt       DateTime  @default(now())
-  startedAt       DateTime? // When processing started
-  completedAt     DateTime? // When completed/failed
+  createdAt       DateTime  @default(now()) @map("created_at")
+  startedAt       DateTime? @map("started_at")       // When processing started
+  completedAt     DateTime? @map("completed_at")     // When completed/failed
   
   @@map("evaluation_jobs")
   @@index([status])

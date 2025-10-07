@@ -18,6 +18,15 @@ export class EvaluationService {
   ) {}
 
   /**
+   * Round number to 2 decimal places to avoid floating point precision issues
+   * Example: 3.6499999999 → 3.65
+   */
+  private roundToTwo(num: number | null): number | null {
+    if (num === null) return null;
+    return Math.round(num * 100) / 100;
+  }
+
+  /**
    * Start evaluation job
    */
   async startEvaluation(dto: StartEvaluationDto): Promise<EvaluationStatusDto> {
@@ -68,8 +77,8 @@ export class EvaluationService {
     return {
       id: job.id,
       status: job.status,
-      jobTitle: job.jobTitle,
-      createdAt: job.createdAt,
+      job_title: job.jobTitle,
+      created_at: job.createdAt,
     };
   }
 
@@ -86,13 +95,15 @@ export class EvaluationService {
     }
 
     // Return result based on status
+    // Database already uses snake_case, so we can return directly!
+    // Only need to round numbers and nest completed results
     const result: any = {
       id: job.id,
       status: job.status,
-      jobTitle: job.jobTitle,
-      createdAt: job.createdAt,
-      startedAt: job.startedAt,
-      completedAt: job.completedAt,
+      job_title: job.jobTitle,
+      created_at: job.createdAt,
+      started_at: job.startedAt,
+      completed_at: job.completedAt,
       attempts: job.attempts,
     };
 
@@ -101,19 +112,19 @@ export class EvaluationService {
       result.error = job.error;
     }
 
-    // If completed, include full results
+    // If completed, nest all results under "result" key
+    // Simple structure: only summary data, no detailed scores breakdown
+    // Round numbers to 2 decimals to avoid floating point precision issues
     if (job.status === 'COMPLETED') {
-      result.cvMatchRate = job.cvMatchRate;
-      result.cvFeedback = job.cvFeedback;
-      result.cvScores = job.cvScoresJson;
-      result.projectScore = job.projectScore;
-      result.projectFeedback = job.projectFeedback;
-      result.projectScores = job.projectScoresJson;
-      result.overallSummary = job.overallSummary;
-      result.llmProvider = job.llmProvider;
-      result.llmModel = job.llmModel;
-      result.tokensUsed = job.tokensUsed;
-      result.processingTimeMs = job.processingTimeMs;
+      result.result = {
+        cv_match_rate: this.roundToTwo(job.cvMatchRate),
+        cv_feedback: job.cvFeedback,
+        project_score: this.roundToTwo(job.projectScore),
+        project_feedback: job.projectFeedback,
+        overall_summary: job.overallSummary,
+      };
+      // Add processing_time_ms at root level for metadata
+      result.processing_time_ms = job.processingTimeMs;
     }
 
     return result;
