@@ -1,0 +1,187 @@
+{
+  "info": {
+    "name": "AI CV Analyzer API",
+    "description": "Backend service for automated CV and project report evaluation using LLM and RAG",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "ai-cv-analyzer"
+  },
+  "auth": {
+    "type": "apikey",
+    "apikey": [
+      {
+        "key": "value",
+        "value": "{{API_KEY}}",
+        "type": "string"
+      },
+      {
+        "key": "key",
+        "value": "x-api-key",
+        "type": "string"
+      },
+      {
+        "key": "in",
+        "value": "header",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "BASE_URL",
+      "value": "http://localhost:3000",
+      "type": "string"
+    },
+    {
+      "key": "API_KEY",
+      "value": "b8797cf1bd438e550478ebc911735629398e4593d27172a93047b0717f8cff65",
+      "type": "string"
+    },
+    {
+      "key": "CV_FILE_ID",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "PROJECT_FILE_ID",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "JOB_ID",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health Check",
+      "request": {
+        "auth": {
+          "type": "noauth"
+        },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{BASE_URL}}/",
+          "host": ["{{BASE_URL}}"],
+          "path": [""]
+        },
+        "description": "Health check endpoint (public, no API key required)"
+      },
+      "response": []
+    },
+    {
+      "name": "Upload CV & Project Report",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "// Save file IDs to collection variables",
+              "if (pm.response.code === 200) {",
+              "    const response = pm.response.json();",
+              "    if (response.data && response.data.cv) {",
+              "        pm.collectionVariables.set('CV_FILE_ID', response.data.cv.id);",
+              "        console.log('CV File ID saved:', response.data.cv.id);",
+              "    }",
+              "    if (response.data && response.data.project_report) {",
+              "        pm.collectionVariables.set('PROJECT_FILE_ID', response.data.project_report.id);",
+              "        console.log('Project File ID saved:', response.data.project_report.id);",
+              "    }",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            {
+              "key": "cv",
+              "type": "file",
+              "src": [],
+              "description": "Candidate CV (PDF only, max 10MB)"
+            },
+            {
+              "key": "project_report",
+              "type": "file",
+              "src": [],
+              "description": "Project Report (PDF only, max 10MB)"
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{BASE_URL}}/upload",
+          "host": ["{{BASE_URL}}"],
+          "path": ["upload"]
+        },
+        "description": "Upload candidate CV and project report PDF files. Both files are required.\n\n**Response:**\n- `upload_id`: Use this ID for evaluation\n- `cv`: CV file metadata\n- `project_report`: Project report file metadata"
+      },
+      "response": []
+    },
+    {
+      "name": "Start Evaluation",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "// Save job ID to collection variable",
+              "if (pm.response.code === 200) {",
+              "    const response = pm.response.json();",
+              "    if (response.data && response.data.id) {",
+              "        pm.collectionVariables.set('JOB_ID', response.data.id);",
+              "        console.log('Job ID saved:', response.data.id);",
+              "    }",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"cvFileId\": \"{{CV_FILE_ID}}\",\n  \"projectReportFileId\": \"{{PROJECT_FILE_ID}}\",\n  \"jobTitle\": \"Backend Developer\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{BASE_URL}}/evaluate",
+          "host": ["{{BASE_URL}}"],
+          "path": ["evaluate"]
+        },
+        "description": "Start evaluation process for uploaded CV and project report.\n\n**Request Body:**\n- `cvFileId`: CV file ID from upload response (UUID)\n- `projectReportFileId`: Project report file ID from upload response (UUID)\n- `jobTitle`: Target job position (e.g., \"Backend Developer\")\n\n**Response:**\n- `job_id`: Use this ID to check evaluation result\n- `status`: \"pending\"\n- `estimated_time_seconds`: Estimated processing time"
+      },
+      "response": []
+    },
+    {
+      "name": "Get Evaluation Result",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{BASE_URL}}/result/{{JOB_ID}}",
+          "host": ["{{BASE_URL}}"],
+          "path": ["result", "{{JOB_ID}}"]
+        },
+        "description": "Get evaluation result by job ID.\n\n**Response Status:**\n- `pending`: Evaluation queued\n- `processing`: Evaluation in progress\n- `completed`: Evaluation finished\n- `failed`: Evaluation failed\n\n**Result Data (when completed):**\n- `cv_evaluation`: CV assessment with match rate and scores\n- `project_evaluation`: Project assessment with scores\n- `overall_summary`: Final recommendation\n- `recommendation`: Final verdict\n- `processing_time_ms`: Total processing time"
+      },
+      "response": []
+    }
+  ]
+}

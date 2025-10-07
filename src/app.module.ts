@@ -15,6 +15,7 @@ import ragieConfig from './config/ragie.config';
 import uploadConfig from './config/upload.config';
 import queueConfig from './config/queue.config';
 import llmConfig from './config/llm.config';
+import authConfig from './config/auth.config';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import llmConfig from './config/llm.config';
         uploadConfig,
         queueConfig,
         llmConfig,
+        authConfig,
       ],
     }),
     // Bull Queue Global Configuration

@@ -3,6 +3,8 @@ import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { ConfigService } from '@nestjs/config';
+import { Reflector } from '@nestjs/core';
+import { ApiKeyGuard } from './common/guards/api-key.guard';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -23,6 +25,10 @@ async function bootstrap() {
     }),
   );
 
+  // Register global API Key guard
+  const reflector = app.get(Reflector);
+  app.useGlobalGuards(new ApiKeyGuard(configService, reflector));
+
   // Swagger documentation
   const config = new DocumentBuilder()
     .setTitle('AI CV Analyzer API')
@@ -32,6 +38,7 @@ async function bootstrap() {
     .setVersion('1.0')
     .addTag('upload', 'Document upload endpoints')
     .addTag('evaluation', 'Evaluation job endpoints')
+    .addApiKey({ type: 'apiKey', in: 'header', name: 'x-api-key' })
     .build();
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api', app, document);

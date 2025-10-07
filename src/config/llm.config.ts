@@ -23,10 +23,11 @@ export default registerAs('llm', () => ({
   },
 
   // Provider configurations (in priority order)
+  // Strategy: Use 2 Gemini models for consistency (same API, same tokenization)
   providers: [
-    // Primary: Google Gemini (Best free tier - No credit card required)
+    // Primary: Gemini 2.5 Flash (Latest & most capable)
     {
-      name: 'gemini',
+      name: 'gemini-primary',
       priority: 1,
       enabled: process.env.GEMINI_API_KEY ? true : false,
       rateLimit: {
@@ -35,44 +36,25 @@ export default registerAs('llm', () => ({
       },
       config: {
         apiKey: process.env.GEMINI_API_KEY,
-        modelFlash: process.env.GEMINI_MODEL_FLASH || 'gemini-1.5-flash',
-        modelPro: process.env.GEMINI_MODEL_PRO || 'gemini-1.5-pro',
-        useProForSynthesis: process.env.USE_GEMINI_PRO === 'true', // Use Pro for final synthesis
+        model: process.env.GEMINI_MODEL_PRIMARY || 'gemini-2.5-flash'
       },
     } as LLMProviderConfig,
 
-    // Backup: OpenRouter Meta Llama (Free & Reliable)
+    // Backup: Gemini 2.0 Flash (Stable & proven fallback)
     {
-      name: 'openrouter',
+      name: 'gemini-backup',
       priority: 2,
-      enabled: process.env.OPENROUTER_API_KEY ? true : false,
+      enabled: process.env.GEMINI_API_KEY ? true : false,
       rateLimit: {
-        rpm: 20, // Free tier: 20 requests per minute
-        tpm: 200000, // 200K tokens per minute
+        rpm: 15, // Same rate limit (shared quota)
+        tpm: 1000000, // Same generous limit
       },
       config: {
-        apiKey: process.env.OPENROUTER_API_KEY,
-        baseUrl: 'https://openrouter.ai/api/v1',
-        model: process.env.OPENROUTER_MODEL || 'meta-llama/llama-3.1-8b-instruct:free',
-        siteName: process.env.OPENROUTER_SITE_NAME || 'AI CV Analyzer',
-        siteUrl: process.env.OPENROUTER_SITE_URL,
+        apiKey: process.env.GEMINI_API_KEY,
+        model: process.env.GEMINI_MODEL_BACKUP || 'gemini-2.0-flash-exp'
       },
     } as LLMProviderConfig,
   ],
 
-  // Task-specific model selection
-  taskConfig: {
-    cvEvaluation: {
-      preferredProvider: 'gemini',
-      useFlash: true, // Use Gemini Flash for CV evaluation
-    },
-    projectEvaluation: {
-      preferredProvider: 'gemini',
-      useFlash: true, // Use Gemini Flash for project evaluation
-    },
-    synthesis: {
-      preferredProvider: 'gemini',
-      useFlash: false, // Use Gemini Pro for final synthesis (better quality)
-    },
-  },
+
 }));

@@ -28,8 +28,6 @@ export class UploadService {
     cvFile: Express.Multer.File,
     reportFile: Express.Multer.File,
   ): Promise<UploadResponseDto> {
-    this.logger.log(`Processing uploaded files: ${cvFile.filename}, ${reportFile.filename}`);
-
     try {
       // Parse PDF files to extract text and metadata
       const [cvData, reportData] = await Promise.all([
@@ -64,8 +62,6 @@ export class UploadService {
           pageCount: reportData.pageCount,
         },
       });
-
-      this.logger.log(`Files processed successfully: CV ID=${cvDocument.id}, Report ID=${reportDocument.id}`);
 
       return {
         cv: {
@@ -133,8 +129,6 @@ export class UploadService {
 
             // Sanitize text: Remove null bytes and other invalid characters for PostgreSQL
             const sanitizedText = this.sanitizeText(text.trim());
-
-            this.logger.log(`Successfully parsed PDF ${file.filename}: ${pageCount} pages, ${sanitizedText.length} characters`);
             
             resolve({
               text: sanitizedText,
@@ -203,7 +197,6 @@ export class UploadService {
     for (const filepath of filePaths) {
       try {
         await fs.unlink(filepath);
-        this.logger.log(`Cleaned up file: ${filepath}`);
       } catch (error) {
         this.logger.warn(`Failed to cleanup file ${filepath}: ${error.message}`);
       }
@@ -228,7 +221,6 @@ export class UploadService {
         where: { id },
       });
 
-      this.logger.log(`File deleted: ${id}`);
     } catch (error) {
       this.logger.error(`Error deleting file ${id}: ${error.message}`);
       throw error;

@@ -1,6 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import OpenAI from 'openai';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
 export interface LLMResponse {
@@ -18,7 +17,6 @@ export interface LLMRequestOptions {
   temperature?: number;
   maxTokens?: number;
   preferredProvider?: string;
-  useProModel?: boolean; // For Gemini: use Pro instead of Flash
 }
 
 @Injectable()
@@ -35,38 +33,31 @@ export class LLMService {
     const llmConfig = this.configService.get('llm');
     const providers = llmConfig.providers;
 
-    // Initialize Gemini (PRIMARY - FREE)
-    const geminiConfig = providers.find(p => p.name === 'gemini');
-    if (geminiConfig?.enabled && geminiConfig.config.apiKey) {
+    // Initialize Gemini Primary (gemini-2.5-flash)
+    const geminiPrimaryConfig = providers.find(p => p.name === 'gemini-primary');
+    if (geminiPrimaryConfig?.enabled && geminiPrimaryConfig.config.apiKey) {
       try {
-        this.providers.set('gemini', {
-          client: new GoogleGenerativeAI(geminiConfig.config.apiKey),
-          config: geminiConfig,
+        this.providers.set('gemini-primary', {
+          client: new GoogleGenerativeAI(geminiPrimaryConfig.config.apiKey),
+          config: geminiPrimaryConfig,
         });
-        this.logger.log('✅ Gemini provider initialized (PRIMARY)');
+        this.logger.log(`✅ Gemini Primary initialized (${geminiPrimaryConfig.config.model})`);
       } catch (error) {
-        this.logger.error('❌ Failed to initialize Gemini:', error.message);
+        this.logger.error('❌ Failed to initialize Gemini Primary:', error.message);
       }
     }
 
-    // Initialize OpenRouter (BACKUP - FREE)
-    const openrouterConfig = providers.find(p => p.name === 'openrouter');
-    if (openrouterConfig?.enabled && openrouterConfig.config.apiKey) {
+    // Initialize Gemini Backup (gemini-2.0-flash-exp)
+    const geminiBackupConfig = providers.find(p => p.name === 'gemini-backup');
+    if (geminiBackupConfig?.enabled && geminiBackupConfig.config.apiKey) {
       try {
-        this.providers.set('openrouter', {
-          client: new OpenAI({
-            apiKey: openrouterConfig.config.apiKey,
-            baseURL: openrouterConfig.config.baseUrl,
-            defaultHeaders: {
-              'HTTP-Referer': openrouterConfig.config.siteUrl || 'http://localhost:3000',
-              'X-Title': openrouterConfig.config.siteName || 'AI CV Analyzer',
-            },
-          }),
-          config: openrouterConfig,
+        this.providers.set('gemini-backup', {
+          client: new GoogleGenerativeAI(geminiBackupConfig.config.apiKey),
+          config: geminiBackupConfig,
         });
-        this.logger.log('✅ OpenRouter provider initialized (BACKUP)');
+        this.logger.log(`✅ Gemini Backup initialized (${geminiBackupConfig.config.model})`);
       } catch (error) {
-        this.logger.error('❌ Failed to initialize OpenRouter:', error.message);
+        this.logger.error('❌ Failed to initialize Gemini Backup:', error.message);
       }
     }
 
@@ -166,27 +157,19 @@ export class LLMService {
     temperature: number,
     options: LLMRequestOptions,
   ): Promise<LLMResponse> {
-    switch (providerName) {
-      case 'gemini':
-        return this.callGemini(provider, systemPrompt, userPrompt, temperature, options);
-      case 'openrouter':
-        return this.callOpenAICompatible(
-          providerName,
-          provider,
-          systemPrompt,
-          userPrompt,
-          temperature,
-          options,
-        );
-      default:
-        throw new Error(`Unknown provider: ${providerName}`);
+    // Both providers use Gemini now (just different models)
+    if (providerName === 'gemini-primary' || providerName === 'gemini-backup') {
+      return this.callGemini(providerName, provider, systemPrompt, userPrompt, temperature, options);
     }
+    
+    throw new Error(`Unknown provider: ${providerName}`);
   }
 
   /**
-   * Call Google Gemini
+   * Call Google Gemini (supports both primary and backup models)
    */
   private async callGemini(
+    providerName: string,
     provider: any,
     systemPrompt: string,
     userPrompt: string,
@@ -196,10 +179,8 @@ export class LLMService {
     const client: GoogleGenerativeAI = provider.client;
     const config = provider.config.config;
 
-    // Choose model (Pro for synthesis, Flash for others)
-    const modelName = options.useProModel && config.useProForSynthesis
-      ? config.modelPro
-      : config.modelFlash;
+    // Get model name from config (either primary or backup)
+    const modelName = config.model;
 
     const model = client.getGenerativeModel({
       model: modelName,
@@ -218,53 +199,12 @@ export class LLMService {
 
     return {
       content: text,
-      provider: 'gemini',
+      provider: providerName,
       model: modelName,
       tokensUsed: {
         prompt: response.usageMetadata?.promptTokenCount || 0,
         completion: response.usageMetadata?.candidatesTokenCount || 0,
         total: response.usageMetadata?.totalTokenCount || 0,
-      },
-    };
-  }
-
-  /**
-   * Call OpenRouter (OpenAI-compatible)
-   */
-  private async callOpenAICompatible(
-    providerName: string,
-    provider: any,
-    systemPrompt: string,
-    userPrompt: string,
-    temperature: number,
-    options: LLMRequestOptions,
-  ): Promise<LLMResponse> {
-    const client: OpenAI = provider.client;
-    const config = provider.config.config;
-
-    // Get the model from config
-    const model = config.model || 'meta-llama/llama-3.1-8b-instruct:free';
-
-    const completion = await client.chat.completions.create({
-      model,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-      temperature,
-      max_tokens: options.maxTokens || 2048,
-    });
-
-    const content = completion.choices[0]?.message?.content || '';
-
-    return {
-      content,
-      provider: providerName,
-      model,
-      tokensUsed: {
-        prompt: completion.usage?.prompt_tokens || 0,
-        completion: completion.usage?.completion_tokens || 0,
-        total: completion.usage?.total_tokens || 0,
       },
     };
   }

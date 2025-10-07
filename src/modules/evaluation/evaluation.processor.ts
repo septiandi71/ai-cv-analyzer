@@ -44,8 +44,6 @@ export class EvaluationProcessor {
         this.uploadService.getFileText(projectReportFileId),
       ]);
 
-      this.logger.log(`Files loaded for job ${jobId}`);
-
       // Phase 4: RAG Integration - Retrieve ground truth context
       this.logger.log(`Retrieving RAG context for job ${jobId}...`);
       const [jobRequirements, cvCriteria, projectRequirements, projectCriteria] = await Promise.all([
@@ -67,16 +65,12 @@ export class EvaluationProcessor {
         }),
       ]);
 
-      this.logger.log(`RAG context retrieved for job ${jobId}`);
-
       // OPTIMIZATION: Run CV and Project evaluation in PARALLEL (reduces ~50% time)
-      this.logger.log(`Starting parallel evaluation with RAG context for job ${jobId}...`);
+      this.logger.log(`Starting parallel evaluation for job ${jobId}...`);
       const [cvEvaluation, projectEvaluation] = await Promise.all([
         this.evaluateCV(cvText, jobTitle, jobRequirements, cvCriteria),
         this.evaluateProject(projectText, projectRequirements, projectCriteria),
       ]);
-
-      this.logger.log(`Parallel evaluation completed for job ${jobId}`);
 
       // Generate overall summary with LLM (more dynamic and accurate)
       this.logger.log(`Generating overall summary for job ${jobId}...`);
@@ -142,13 +136,12 @@ export class EvaluationProcessor {
     // Inject job requirements from ground truth if available
     if (jobRequirements?.context) {
       systemPrompt += `\n\n=== JOB REQUIREMENTS (Ground Truth) ===\n${jobRequirements.context.substring(0, 2000)}\n`;
-      this.logger.log(`Using RAG job requirements (${jobRequirements.chunks?.length || 0} chunks, score: ${jobRequirements.relevanceScore?.toFixed(2) || 'N/A'})`);
     }
 
     // Inject CV scoring criteria from rubric if available
     if (cvCriteria?.context) {
       systemPrompt += `\n\n=== EVALUATION CRITERIA (Ground Truth) ===\n${cvCriteria.context.substring(0, 2000)}\n`;
-      this.logger.log(`Using RAG CV criteria (${cvCriteria.chunks?.length || 0} chunks, score: ${cvCriteria.relevanceScore?.toFixed(2) || 'N/A'})`);
+      this.logger.log(`✅ Using RAG scoring rubric for CV evaluation (${cvCriteria.chunks?.length || 0} chunks, relevance: ${cvCriteria.relevanceScore?.toFixed(2) || 'N/A'})`);
     } else {
       // Fallback criteria if RAG unavailable
       systemPrompt += `\n\nEvaluate the CV based on these criteria (score 1-5 for each):
@@ -156,6 +149,7 @@ export class EvaluationProcessor {
 2. Experience Level (weight: 25%) - Years of experience and project complexity
 3. Relevant Achievements (weight: 20%) - Impact, scale, adoption
 4. Cultural Fit (weight: 15%) - Communication, learning attitude, teamwork`;
+      this.logger.warn(`⚠️  Using FALLBACK criteria for CV evaluation (RAG not available)`);
     }
 
     systemPrompt += `\n\nIMPORTANT: 
@@ -179,10 +173,8 @@ Required JSON format:
     const response = await this.llmService.generateCompletion(
       systemPrompt,
       userPrompt,
-      { temperature: 0.7, maxTokens: 4096 },
+      { temperature: 0, maxTokens: 4096 },
     );
-
-    this.logger.debug(`Raw LLM response for CV evaluation (first 500 chars): ${response.content.substring(0, 500)}`);
 
     // Parse LLM response
     const result = this.parseJSONResponse(response.content);
@@ -221,13 +213,12 @@ Required JSON format:
     // Inject project requirements from case study brief if available
     if (projectRequirements?.context) {
       systemPrompt += `\n\n=== PROJECT REQUIREMENTS (Ground Truth) ===\n${projectRequirements.context.substring(0, 2000)}\n`;
-      this.logger.log(`Using RAG project requirements (${projectRequirements.chunks?.length || 0} chunks, score: ${projectRequirements.relevanceScore?.toFixed(2) || 'N/A'})`);
     }
 
     // Inject project scoring criteria from rubric if available
     if (projectCriteria?.context) {
       systemPrompt += `\n\n=== EVALUATION CRITERIA (Ground Truth) ===\n${projectCriteria.context.substring(0, 2000)}\n`;
-      this.logger.log(`Using RAG project criteria (${projectCriteria.chunks?.length || 0} chunks, score: ${projectCriteria.relevanceScore?.toFixed(2) || 'N/A'})`);
+      this.logger.log(`✅ Using RAG scoring rubric for Project evaluation (${projectCriteria.chunks?.length || 0} chunks, relevance: ${projectCriteria.relevanceScore?.toFixed(2) || 'N/A'})`);
     } else {
       // Fallback criteria if RAG unavailable
       systemPrompt += `\n\nEvaluate the project based on these criteria (score 1-5 for each):
@@ -236,12 +227,15 @@ Required JSON format:
 3. Resilience (weight: 20%) - Handles failures, retries, errors
 4. Documentation (weight: 15%) - Clear README, explanations
 5. Creativity (weight: 10%) - Extra features beyond requirements`;
+      this.logger.warn(`⚠️  Using FALLBACK criteria for Project evaluation (RAG not available)`);
     }
 
     systemPrompt += `\n\nIMPORTANT:
 - Respond with ONLY valid JSON, no markdown formatting, no explanations, no code blocks
 - Keep each feedback to MAX 100 characters
 - Keep overall_feedback to MAX 200 characters
+- BE CONSISTENT: When information is missing or unclear, always score conservatively (lower score) rather than assuming
+- If a criterion has limited evidence, use the same scoring logic every time (e.g., "mentions X but lacks details" = score 2)
 
 Required JSON format:
 {
@@ -260,10 +254,8 @@ Required JSON format:
     const response = await this.llmService.generateCompletion(
       systemPrompt,
       userPrompt,
-      { temperature: 0.7, maxTokens: 4096 },
+      { temperature: 0, maxTokens: 4096 },
     );
-
-    this.logger.debug(`Raw LLM response for Project evaluation (first 500 chars): ${response.content.substring(0, 500)}`);
 
     // Parse LLM response
     const result = this.parseJSONResponse(response.content);
@@ -296,24 +288,34 @@ Required JSON format:
   }> {
     const systemPrompt = `You are a senior hiring manager making the final assessment of a candidate for a ${jobTitle} position.
 
-Based on the CV and project evaluation results, provide a personalized 3-5 sentence summary that includes:
-1. Candidate's strongest qualities and technical capabilities
-2. Areas for development or potential concerns
-3. Clear final recommendation: "Strongly Recommend", "Recommend", "Consider with Reservations", or "Not Recommended"
+Write a natural, flowing 3-5 sentence summary that:
+1. Highlights the candidate's key strengths and technical background
+2. Addresses any concerns or areas needing development
+3. Concludes with a clear recommendation: "Strongly Recommend", "Recommend", "Consider with Reservations", or "Not Recommended"
 
-Be specific, constructive, and professional. Use data from the evaluations to support your assessment.`;
+IMPORTANT STYLE GUIDELINES:
+- Write in a professional, narrative style (not bullet points)
+- DO NOT explicitly mention numeric scores, ratings, or fractions (e.g., avoid "4/5", "85%", "3.5/5.0")
+- DO NOT use formatting characters like asterisks, bold markers, or special symbols
+- Instead of scores, describe performance qualitatively (e.g., "demonstrates strong expertise", "shows solid understanding", "lacks sufficient depth")
+- Be specific about strengths and weaknesses based on the evaluation context
+- Keep the tone professional, constructive, and decisive`;
 
-    const userPrompt = `CV Evaluation Results:
-- Match Rate: ${(cvEvaluation.matchRate * 100).toFixed(0)}%
-- Feedback: ${cvEvaluation.feedback}
-- Technical Skills: ${cvEvaluation.scores.technical_skills?.score}/5
-- Experience Level: ${cvEvaluation.scores.experience_level?.score}/5
+    const userPrompt = `CV Evaluation:
+${cvEvaluation.feedback}
 
-Project Evaluation Results:
-- Overall Score: ${projectEvaluation.score.toFixed(1)}/5.0
-- Feedback: ${projectEvaluation.feedback}
-- Code Quality: ${projectEvaluation.scores.code_quality?.score}/5
-- Correctness: ${projectEvaluation.scores.correctness?.score}/5
+Key CV Strengths:
+- Technical Skills: ${cvEvaluation.scores.technical_skills?.feedback || 'N/A'}
+- Experience: ${cvEvaluation.scores.experience_level?.feedback || 'N/A'}
+- Achievements: ${cvEvaluation.scores.achievements?.feedback || 'N/A'}
+
+Project Evaluation:
+${projectEvaluation.feedback}
+
+Key Project Assessment:
+- Correctness: ${projectEvaluation.scores.correctness?.feedback || 'N/A'}
+- Code Quality: ${projectEvaluation.scores.code_quality?.feedback || 'N/A'}
+- Resilience: ${projectEvaluation.scores.resilience?.feedback || 'N/A'}
 
 Provide your final assessment:`;
 
@@ -323,8 +325,16 @@ Provide your final assessment:`;
       { temperature: 0.8, maxTokens: 2048 },
     );
 
+    // Clean up summary: remove any formatting characters
+    let cleanedSummary = response.content.trim()
+      .replace(/\*\*/g, '')  // Remove bold markers (**)
+      .replace(/\*/g, '')    // Remove asterisks (*)
+      .replace(/#/g, '')     // Remove hash symbols
+      .replace(/_{2,}/g, '') // Remove multiple underscores
+      .replace(/`/g, '');    // Remove backticks
+
     return {
-      summary: response.content.trim(),
+      summary: cleanedSummary,
       provider: response.provider,
       model: response.model,
       tokensUsed: response.tokensUsed?.total || 0,
@@ -380,7 +390,6 @@ Provide your final assessment:`;
       const jsonMatch = cleanedContent.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         const jsonStr = jsonMatch[0];
-        this.logger.debug(`Attempting to parse JSON: ${jsonStr.substring(0, 200)}...`);
         return JSON.parse(jsonStr);
       }
 

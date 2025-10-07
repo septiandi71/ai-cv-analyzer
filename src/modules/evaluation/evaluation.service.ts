@@ -30,7 +30,7 @@ export class EvaluationService {
    * Start evaluation job
    */
   async startEvaluation(dto: StartEvaluationDto): Promise<EvaluationStatusDto> {
-    this.logger.log(`Starting evaluation for job title: ${dto.jobTitle}`);
+    // 1. Validate files exist
 
     // Validate that files exist
     const [cvFile, projectFile] = await Promise.all([
