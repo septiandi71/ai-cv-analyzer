@@ -886,109 +886,129 @@ const localizedPrompt = getPromptTemplate(detectedLang)
 
 ## API Screenshots & Real Evaluation Logs
 
-### 1. Upload Files Response
+> **📸 NOTE:** All screenshots below are from actual API responses tested with Postman using real CV and Project Report PDFs.
 
+### 1. Upload Files - POST /upload
+
+![Upload Files Response](https://i.imgur.com/hTUoCC8.png)
+
+**Endpoint:** `POST http://localhost:3000/upload`
+
+**Request:** Multipart form-data with:
+- `cv`: PDF file (Candidate's CV)
+- `projectReport`: PDF file (Project documentation)
+
+**Response:** Returns file IDs for both uploaded documents with success status.
+
+---
+
+### 2. Start Evaluation - POST /evaluate
+
+![Start Evaluation Response](https://i.imgur.com/WH1YODt.png)
+
+**Endpoint:** `POST http://localhost:3000/evaluate`
+
+**Request Body:**
 ```json
-POST /upload
-
-{
-  "cvFileId": "uuid-cv-file-123",
-  "projectReportFileId": "uuid-project-file-456",
-  "message": "Files uploaded successfully"
-}
-```
-
-### 2. Start Evaluation Response
-
-```json
-POST /evaluate
-
-Request Body:
 {
   "jobTitle": "Backend Developer",
-  "cvFileId": "uuid-cv-file-123",
-  "projectReportFileId": "uuid-project-file-456"
-}
-
-Response:
-{
-  "jobId": "884daa35-957a-4960-a21b-153d5957953f",
-  "status": "QUEUED",
-  "message": "Evaluation job queued successfully"
+  "cvFileId": "uuid-from-upload",
+  "projectReportFileId": "uuid-from-upload"
 }
 ```
 
-### 3. Get Result (COMPLETED)
+**Response:** Returns `job_id` with status `QUEUED` immediately (non-blocking pattern).
 
-```json
-GET /result/884daa35-957a-4960-a21b-153d5957953f
+**Key Points:**
+- ✅ API responds instantly (~50ms)
+- ✅ Job added to Bull queue
+- ✅ Returns job ID for polling
 
-Response:
-{
-  "id": "884daa35-957a-4960-a21b-153d5957953f",
-  "status": "COMPLETED",
-  "jobTitle": "Backend Developer",
-  "cvMatchRate": 4.25,
-  "cvFeedback": {
-    "technicalSkills": {
-      "score": 4,
-      "feedback": "Strong Node.js & TypeScript experience"
-    },
-    "experience": {
-      "score": 5,
-      "feedback": "5+ years relevant backend development"
-    }
-  },
-  "projectScore": 2.3,
-  "projectFeedback": {
-    "correctness": {
-      "score": 2,
-      "feedback": "Missing some required features"
-    },
-    "codeQuality": {
-      "score": 2,
-      "feedback": "Basic structure, needs improvement"
-    }
-  },
-  "overallSummary": "Candidate shows strong technical background...",
-  "llmProvider": "gemini-primary",
-  "llmModel": "gemini-2.5-flash",
-  "tokensUsed": 12847,
-  "processingTimeMs": 35130
-}
-```
+---
 
-### 4. Real System Logs (Proof of RAG + LLM Working)
+### 3. Get Result - GET /result/:jobId
 
-```log
-[Nest] 66769  - 10/07/2025, 8:50:27 PM  LOG [EvaluationService] 
-  Evaluation job created: 884daa35-957a-4960-a21b-153d5957953f
+![Get Result Response](https://i.imgur.com/ITskw2D.png)
 
-[Nest] 66769  - 10/07/2025, 8:50:27 PM  LOG [EvaluationProcessor] 
-  Retrieving RAG context for job 884daa35-957a-4960-a21b-153d5957953f...
+**Endpoint:** `GET http://localhost:3000/result/:jobId`
 
-[Nest] 66769  - 10/07/2025, 8:50:28 PM  LOG [RagieService] 
-  Retrieved 4 chunks in 1218ms (avg score: 0.17)  ✅ RAG WORKING
+**Response:** Complete evaluation results with:
+- ✅ CV evaluation scores (matchRate, technical skills, experience, etc.)
+- ✅ Project evaluation scores (correctness, code quality, architecture, etc.)
+- ✅ Overall professional summary
+- ✅ Metadata (LLM provider, model, tokens used, processing time)
 
-[Nest] 66769  - 10/07/2025, 8:50:29 PM  LOG [EvaluationProcessor] 
-  ✅ Using RAG scoring rubric for CV evaluation (4 chunks, relevance: 0.17)
+**Real Scores from Screenshot:**
+- **CV Match Rate:** 4.25/5.0
+- **Project Score:** 2.3/5.0
+- **Processing Time:** ~35 seconds
+- **LLM Model:** gemini-2.5-flash
 
-[Nest] 66769  - 10/07/2025, 8:50:29 PM  LOG [LLMService] 
-  🤖 Attempting gemini-primary (attempt 1/3)...
+---
 
-[Nest] 66769  - 10/07/2025, 8:50:50 PM  LOG [LLMService] 
-  ✅ Successfully generated completion using gemini-primary  ✅ LLM WORKING
+### 4. Real System Logs (Terminal Output)
 
-[Nest] 66769  - 10/07/2025, 8:51:02 PM  LOG [EvaluationProcessor] 
-  Evaluation completed in 35130ms  ✅ COMPLETE PIPELINE WORKING
-```
+![Terminal Logs](https://i.imgur.com/7H69cC8.png)
+
+**Complete Evaluation Pipeline Logs:**
+
+The logs show the entire evaluation flow from start to finish:
+
+1. **Job Creation**
+   ```
+   [EvaluationService] Evaluation job created: <job-id>
+   [EvaluationProcessor] Processing evaluation job: <job-id>
+   ```
+
+2. **RAG Context Retrieval** (4 parallel queries)
+   ```
+   [RagieService] Retrieving job requirements for: Backend Developer
+   [RagieService] Retrieving CV scoring criteria from rubric
+   [RagieService] Retrieving project requirements from case study brief
+   [RagieService] Retrieving project scoring criteria from rubric
+   ```
+
+3. **RAG Success**
+   ```
+   [RagieService] Retrieved 4 chunks in 1218ms (avg score: 0.17) ✅
+   [RagieService] Retrieved 5 chunks in 1236ms (avg score: 0.17) ✅
+   [RagieService] Retrieved 2 chunks in 1455ms (avg score: 0.19) ✅
+   [RagieService] Retrieved 4 chunks in 2196ms (avg score: 0.17) ✅
+   ```
+
+4. **Parallel LLM Evaluation**
+   ```
+   [EvaluationProcessor] ✅ Using RAG scoring rubric for CV evaluation
+   [LLMService] 🤖 Attempting gemini-primary (attempt 1/3)...
+   [EvaluationProcessor] ✅ Using RAG scoring rubric for Project evaluation
+   [LLMService] 🤖 Attempting gemini-primary (attempt 1/3)...
+   ```
+
+5. **LLM Success**
+   ```
+   [LLMService] ✅ Successfully generated completion using gemini-primary
+   [LLMService] ✅ Successfully generated completion using gemini-primary
+   ```
+
+6. **Summary Generation**
+   ```
+   [EvaluationProcessor] Generating overall summary for job <job-id>...
+   [LLMService] ✅ Successfully generated completion using gemini-primary
+   ```
+
+7. **Completion**
+   ```
+   [EvaluationService] Job <job-id> status updated to: COMPLETED
+   [EvaluationProcessor] Evaluation completed in 35130ms ✅
+   ```
 
 **Key Evidence from Logs:**
-- **RAG Retrieval:** 4 parallel retrievals (1218ms, 1236ms, 1455ms, 2196ms)
-- **Context Injection:** "Using RAG scoring rubric" confirms RAG → LLM integration
-- **LLM Calls:** 3 successful calls (CV eval, Project eval, Summary)
-- **Parallel Execution:** CV and Project evaluated simultaneously
-- **End-to-End:** 35 seconds total (RAG retrieval + LLM processing + DB updates)
+- ✅ **RAG Working:** 4 parallel retrievals (1.2-2.2 seconds each)
+- ✅ **Context Injection:** "Using RAG scoring rubric" confirms RAG → LLM integration
+- ✅ **LLM Calls:** 3 successful gemini-primary calls (CV, Project, Summary)
+- ✅ **Parallel Execution:** CV and Project evaluated simultaneously (not sequential)
+- ✅ **End-to-End Pipeline:** 35.13 seconds total (RAG retrieval + LLM processing + DB updates)
+- ✅ **Zero Failures:** All components working flawlessly
 
 ---
 
