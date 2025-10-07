@@ -1,0 +1,19 @@
+{
+  "id": "dev-environment",
+  "name": "Development",
+  "values": [
+    {
+      "key": "BASE_URL",
+      "value": "http://localhost:3000",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "API_KEY",
+      "value": "your_dev_api_key_here",
+      "type": "secret",
+      "enabled": true
+    }
+  ],
+  "_postman_variable_scope": "environment"
+}

@@ -52,8 +52,4 @@ docs/
 *.pdf
 !docs/*.pdf
 
-# Postman environment files (contains API keys)
-postman/postman-environment-*.json
-postman-environment-*.json
-
 /generated/prisma
